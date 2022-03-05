@@ -1,0 +1,227 @@
+#include<stm32f4xx.h>
+
+// GPIO A(OUTPUTS):
+//7-SEGMENT
+#define a 0 //7-SEGMENT a
+#define b 1 //7-SEGMENT b
+#define c 2 //7-SEGMENT c
+#define d 3 //7-SEGMENT d
+#define e 4 //7-SEGMENT e
+#define f 5 //7-SEGMENT f
+#define g 6 //7-SEGMENT g
+#define SSD1 7 //THE LEFT DIGIT
+#define SSD2 8 //THE RIGHT DIGIT
+#define dp 11 //7-SEGMENT dp
+
+//LED
+#define LED_G 9 // GREEN LED
+#define LED_R 10 // RED LED
+
+//GPIO B BUTTONS (INPUTS):
+#define SW1 0
+#define SW2 1
+
+//MASKS:
+#define SET1(x) (1ul << (x))
+#define SET0(x) (~(1ul << (x)))
+
+// FUNCTIONS
+void Set7Segment(void);
+int Delay(volatile int time);
+void ChangeLEDAndDigit(void);
+void Handle(void);
+
+
+/*
+ ***************************** NUMBERS ********************************
+ */
+// NUMBERS FOR FINDING HOW MANY TIMES ONE HAS BEEN PUSHED
+static int sw1_number = 0, sw2_number = 0;
+static int state = 1; // 1 => RIGHT , 2 => LEFT , 0 => STOP , ALL NEGATIVE NUMBERS => STOP
+static int counter = 9; // SHOWS NUMBER OF THE 7-SEGMENT
+
+
+/*
+ *********************************** FUNCTION FOR SETTING GPIOA FOR 7-SEGMENT ***************************************
+ */
+void Set7Segment(void){ // HERE WE SET THE 7-SEGMENT FOR THE COUNTER.(OUR 7-SEGMENT IS ACTIVE-LOW)
+	switch(counter){
+		case 0: // ONLY G IS OFF
+			GPIOA -> ODR |= SET1(g); // OFF
+			GPIOA -> ODR &= SET0(a) & SET0(b) & SET0(c) & SET0(d) & SET0(e) & SET0(f); // ON
+			break;
+		case 1: // ONLY B AND C ARE ON
+			GPIOA -> ODR |= SET1(a) | SET1(d) | SET1(e) | SET1(f) | SET1(g); // OFF
+			GPIOA -> ODR &= SET0(b) & SET0(c); // ON
+			break;
+		case 2: // ONLY C AND F ARE OFF
+			GPIOA -> ODR |= SET1(c) | SET1(f); // OFF
+			GPIOA -> ODR &= SET0(a) & SET0(b) & SET0(d) & SET0(e) & SET0(g); // ON
+			break;
+		case 3: // ONLY E AND F ARE OFF
+			GPIOA -> ODR |= SET1(e) | SET1(f); // OFF
+			GPIOA -> ODR &= SET0(a) & SET0(b) & SET0(c) & SET0(d) & SET0(g); // ON
+			break;
+		case 4: // ONLY A, D AND E ARE OFF
+			GPIOA -> ODR |= SET1(a) | SET1(d) | SET1(e); // OFF
+			GPIOA -> ODR &= SET0(b) & SET0(c) & SET0(f) & SET0(g); // ON
+			break;
+		case 5: // ONLY B AND E ARE OFF
+			GPIOA -> ODR |= SET1(b) | SET1(e); // OFF
+			GPIOA -> ODR &= SET0(a) & SET0(c) & SET0(d) & SET0(f) & SET0(g); // ON
+			break;
+		case 6: // ONLY B IS OFF
+			GPIOA -> ODR |= SET1(b); // OFF
+			GPIOA -> ODR &= SET0(a) & SET0(c) & SET0(d) & SET0(e) & SET0(f) & SET0(g); // ON
+			break;
+		case 7: // ONLY A, B AND C ARE ON.
+			GPIOA -> ODR |= SET1(d) | SET1(e) | SET1(f) | SET1(g); // OFF
+			GPIOA -> ODR &= SET0(a) & SET0(b) & SET0(c); // ON
+			break;
+		case 8: // ALL OF THEM ARE ON
+			GPIOA -> ODR &= SET0(a) & SET0(b) & SET0(c) & SET0(d) & SET0(e) & SET0(f) & SET0(g); // ON
+			break;
+		case 9: // ONLY E IS OFF
+			GPIOA -> ODR |= SET1(e); // OFF
+			GPIOA -> ODR &= SET0(a) & SET0(b) & SET0(c) & SET0(d) & SET0(f) & SET0(g); // ON
+			break;
+	}
+}
+
+/*
+ *********************************** FUNCTION FOR MAKING A DELAY ***************************************
+ */
+// RETURN VALUE 0 => NO CLICK WHICH LEAD TO ANY CHANGE
+// RETURN VALUE 1 => SW1 HAS CLICKED TWICE, SO WE GO TO GREEN STATE(RIGHT OR STATE = 2)
+// RETURN VALUE 2 => SW2 HAS CLICKED 3 TIMES, SO WE GO TO STOP STATE (STATE = 0)
+// RETURN VALUE 3 => SW2 HAS CLICKED 4 TIMES, SO WE BACK TO OUR PREVIOUS STATE.
+int Delay(volatile int time){
+	//MAKING TWO NESTED LOOP TO STAYING HERE FOR A SECOND AND IN THIS TIME WE ALSO HAVE TO 
+	// TAKE CARE OF CLICKS
+	for(int i = 0; i < time; i++){
+		for (int j = 0; j < time; j++){
+			if(GPIOB -> IDR & SET1(SW1) && state > 0){ // IF WE HAVE CLICKED ON THE SW1
+				sw1_number++; // WE INCREASE NUMBER OF CLICKING ON SW1
+				//WHEN WE CLICK, THE INPUT STAY ONE FOR A LONGER TIME THAN FINISHING THIS BODY, SO AGAIN IT WILL
+				//ACT LIKE WE CLICKED. FOR PREVENTING THAT, WE SET A BUSY-WAITING (EMPTY LOOP) TO STAYE HERE 
+				//AS LONG AS THE INPUT HAS CHANGED TO ZERO.(WHEN WE HAVE FINISHED CLICKING)
+				while(GPIOB -> IDR & SET1(SW1))
+					;
+				if(sw1_number == 2) // IF WE ARE CLICKING ON THE SW1 FOR THE 2nd TIME, WE RETURN 1, OTHERWISE WE CONTINUE THE PROCESS
+					return 1; 
+			}
+			if(GPIOB -> IDR & SET1(SW2)){ // IF WE HAVE CLICKED ON THE SW2
+				sw2_number++;// WE INCREASE NUMBER OF CLICKING ON SW2
+				//WHEN WE CLICK, THE INPUT STAY ONE FOR A LONGER TIME THAN FINISHING THIS BODY, SO AGAIN IT WILL
+				//ACT LIKE WE CLICKED. FOR PREVENTING THAT, WE SET A BUSY-WAITING (EMPTY LOOP) TO STAYE HERE 
+				//AS LONG AS THE INPUT HAS CHANGED TO ZERO.(WHEN WE HAVE FINISHED CLICKING)
+				while(GPIOB -> IDR & SET1(SW2))
+					;
+				if(sw2_number == 3) // IF WE ARE CLICKING ON THE SW2 FOR THE 3rd TIME, WE RETURN 2, OTHERWISE WE CONTINUE THE PROCESS
+					return 2;
+				if(sw2_number == 4)// IF WE ARE CLICKING ON THE SW2 FOR THE 4th TIME, WE RETURN 3, OTHERWISE WE CONTINUE THE PROCESS
+					return 3;
+			}
+		}
+	}
+	// IF WE DIDN'T PRESS ANYTHING OR ATLEAST IT WASN'T ENOUGH
+	return 0;
+}
+
+
+/*
+ *********************************** FUNCTION FOR SETTING LED AND CHOOSONG THE ON AND OFF DIGIT ***********************
+ */
+void ChangeLEDAndDigit(void){
+	if(state == 1){// RIGHT DIGIT WAS ON AND GREEN LED WAS ON
+				state = 2; // CHANGING THE STATUS
+				GPIOA -> ODR |= SET1(SSD1); // TURNING ON THE LEFT DIGIT
+				GPIOA -> ODR &= SET0(SSD2); // TURNING OFF THE RIGHT DIGIT
+				GPIOA -> ODR |= SET1(LED_R); // TURNING ON THE RED LED
+				GPIOA -> ODR &= SET0(LED_G); // TURNING OFF THE RED
+			}else{// LEFT DIGIT WAS ON AND RED LED WAS ON
+				state = 1; // CHANGING STATUS
+				GPIOA -> ODR |= SET1(SSD2); // TURNING ON THE RIGHT DIGIT
+				GPIOA -> ODR &= SET0(SSD1); // TURNING OFF THE LEFT DIGIT
+				GPIOA -> ODR |= SET1(LED_G); // TURNING ON THE GREEN LED
+				GPIOA -> ODR &= SET0(LED_R); // TURNING OFF THE RED LED
+			}
+}
+
+
+
+
+
+/*
+ ********************************** FUNCTION FOR HANDLING THE MAIN LOOP ***********************************************
+ */
+void Handle(void){
+	int delay = Delay(850);
+	
+	
+	if (delay == 0 && state > 0){ // COUNTINUE OUR USUAL WORK
+		counter--; // WE HAVE WAITED ENOUGH ON THE PREVOISE COUNTER, SO WE UPDTE THE COUNTER
+		if(counter == -1){ // WE CHECK IF THE NEW COUNTER IS NOT OUT OF BANDS(IS NOT LESS THAN 0)
+			counter = 9; // IF COUNTER IS NEGATIVE, THEN WE REINITIALIZ IT
+			ChangeLEDAndDigit(); // NOW WE CHANGE THE LED COLOR AND THE DIGIT WHICH WAS ACTIVE ON 7-SEGMENT
+		}
+		Set7Segment(); // WE UPDATE THE 7-SEGMENT WITH THE NEW COUNTER
+	}
+	if(delay == 1 && state > 0){ // GOING TO THE BEGGINIG OF STATE 1
+		sw1_number = 0; // WE RESET NUMBER OF CLICKS ON SW1
+		state = 1; // HERE WE CHANGE OUR STATE AND GO TO STATE 1 (STATE = 1)
+		GPIOA -> ODR |= SET1(SSD2); // TURNING ON THE RIGHT DIGIT
+		GPIOA -> ODR &= SET0(SSD1); // TURNING OFF THE LEFT DIGIT
+		GPIOA -> ODR |= SET1(LED_G); // TURNING ON THE GREEN LED
+		GPIOA -> ODR &= SET0(LED_R); // TURNING OFF THE RED 
+		counter = 9; // HERE WE REINITIALIZE THE COUNTER AND
+		Set7Segment(); // HERE WE SET THE 7-SEGMENT FOR THE NEW COUNTER
+	}
+	if(delay == 2){ // CLICKING FOR THE 3rd TIME
+		state = -state; // IT WILL SHOW THAT WE SHOULD STOP AND ALSO IN THIS WAY (STATE = -STATE) WE CAN SAVE OUR PREVIOSE STATE
+		GPIOA -> ODR &= SET0(dp); // TURNING ON THE LITTLE LIGHT (dp) ON THE 7-SEGMENT
+	}
+	if(delay == 3){ // CLICKING FOR THE 4th TIME
+		sw2_number = 0; // WE RESET NUMBER OF CLICKS ON SW2
+		state = -state; // WE ALSO RESTORE THE PREVIOUSE STATE
+		GPIOA -> ODR |= SET1(dp); // TURNING OFF THE LITTLE LIGHT (dp) ON THE 7-SEGMENT
+		counter--; // WE HAVE WAITED ENOUGH ON THIS NUMBER, SO WE UPDATE THE counter AND
+		if(counter == -1){ // WE CHECK IF THE NEW COUNTER IS NOT OUT OF BANDS(IS NOT LESS THAN 0)
+			counter = 9; // IF COUNTER IS NEGATIVE, THEN WE REINITIALIZ IT
+			ChangeLEDAndDigit(); // NOW WE CHANGE THE LED COLOR AND THE DIGIT WHICH WAS ACTIVE ON 7-SEGMENT
+		}
+		Set7Segment(); // WE SET THE 7-SEGMENT FOR THE NEW COUNTER
+	}
+}
+
+int main(void){
+	RCC -> AHB1ENR |= RCC_AHB1ENR_GPIOAEN; // TURNING ON THE CLOCKS FOR GPIOA
+	RCC -> AHB1ENR |= RCC_AHB1ENR_GPIOBEN; // TURNING ON THE CLOCKS FOR GPIOB
+	
+	// GPIO A IS OUTPUT SO WE SET MODE REGISTER "01" FOR IT(WRITING MODE). AND BECAUSE FROM 0 TO 11 (12 NUMBER) ARE USED WE 
+	// ARE USING 12 "01". => 0101 0101 0101 0101 0101 0101 => 5 5 5 5 5 5
+	GPIOA -> MODER = 0x555555;
+	// GPIO B IS INPUT SO WE SET MODE REGISTER "00"  FOR IT(READING MODE) FOR BOTH INPUTS.
+	GPIOB -> MODER &= SET0(0) & SET0(1) & SET0(2) & SET0(3);
+	// SETTING B0 AND B1 PULL DOWN "10". AND WE HAVE TO FO IT FOR OUR BOTH SW
+	GPIOB ->PUPDR |= SET1(1); // SW1
+	GPIOB ->PUPDR &= SET0(0); // SW1
+	GPIOB ->PUPDR |= SET1(3); // SW2
+	GPIOB ->PUPDR &= SET0(2); // SW2
+	
+	//TURNING ON SYSTEM CONFIGURATION CLOCK.
+	RCC -> APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+	
+	//SETTING THE DEFAULT VALUE OF THE 7-SEGMENT
+	Set7Segment();
+	GPIOA -> ODR |= SET1(LED_G); // TURNING ON THE GREEN LED
+	GPIOA -> ODR &= SET0(LED_R); // TURNING OFF THE RED LED
+	
+	GPIOA -> ODR |= SET1(SSD2); // TURNING ON THE RIGHT DIGIT OF THE 7-SEGMENT
+	GPIOA -> ODR &= SET0(SSD1); // TURNING OFF THE LEFT BIT OF THE 7-SEGMENT
+	GPIOA -> ODR |= SET1(dp); // TURNING OFF THE LITTLE LIGHT IN THE 7-SEGMENT(dp)
+	
+	while(1){
+		Handle();
+	}
+}
